@@ -3,8 +3,10 @@ package main
 import (
 	"fmt"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"math/rand"
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -33,7 +35,7 @@ func NewExporter(metricsPrefix string) *Exporter {
 		Namespace: metricsPrefix, //指标数据名称前缀
 		Name:      "cpu_usc_pct",
 		Help:      "This is a cpu pct metric"},
-		[]string{"cpu_user","cpu_sys"})
+		[]string{"cpu_user", "cpu_sys"})
 
 	return &Exporter{
 		gauge:    gauge,
@@ -41,31 +43,25 @@ func NewExporter(metricsPrefix string) *Exporter {
 	}
 }
 
-
 //這兩個方法不能省略，一定要有
 //
 //Describe理論上不用做什麼特別的事，只要讓exporter metrics呼叫Describe方法就好
 //
 //而Collect則是要實作對metrics的收集,
 
-
-var chData chan float64
-func risCpu() (ch chan float64,gaugeData float64, gaugeVecData float64){
-
-	gaugeData = rand.Float64()
-	gaugeVecData = rand.Float64()
-
-
-	return
-}
-
-func (e *Exporter)  Collect(ch chan<- prometheus.Metric) {
-	gaugeData,gaugeVecData:=risCpu()
-	e.gauge.Set(gaugeData)
-	e.gaugeVec.WithLabelValues("xxxx","aaaa").Set(gaugeVecData)
-	//e.gaugeVec.WithLabelValues("cpu_sys").Set(float64(0.64))
+func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	go func() {
+		for {
+			e.gauge.Set(rand.Float64())
+			fmt.Println(time.Now())
+			time.Sleep(time.Second * 3)
+		}
+		wg.Done()
+	}()
+	wg.Wait()
 	e.gauge.Collect(ch)
-	e.gaugeVec.Collect(ch)
 }
 
 func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
@@ -79,7 +75,6 @@ func main() {
   Access: http://127.0.0.1:9999
   `)
 
-
 	// Define parameters
 
 	metricsPath := "/metrics"
@@ -90,10 +85,11 @@ func main() {
 
 	exporter := NewExporter(metricsPrefix)
 	prometheus.MustRegister(exporter)
+	//exporter.gauge.Inc()
 
 	// Launch http service
 
-	http.Handle(metricsPath, prometheus.Handler())
+	http.Handle(metricsPath, promhttp.Handler())
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`<html>
              <head><title>Dummy Exporter</title></head>
